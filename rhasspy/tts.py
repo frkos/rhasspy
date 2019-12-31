@@ -11,36 +11,15 @@ from urllib.parse import urljoin
 import requests
 
 from rhasspy.actor import Configured, ConfigureEvent, RhasspyActor
-from rhasspy.audio_player import PlayWavData, WavPlayed
+from rhasspy.events import (
+    ResumeListeningForWakeWord,
+    PlayWavData,
+    SentenceSpoken,
+    SpeakSentence,
+    PauseListeningForWakeWord,
+    WavPlayed,
+)
 from rhasspy.utils import hass_request_kwargs
-
-# -----------------------------------------------------------------------------
-
-
-class SpeakSentence:
-    """Request to speak a sentence."""
-
-    def __init__(
-        self,
-        sentence: str,
-        receiver: Optional[RhasspyActor] = None,
-        play: bool = True,
-        voice: Optional[str] = None,
-        language: Optional[str] = None,
-    ) -> None:
-        self.sentence = sentence
-        self.receiver = receiver
-        self.play = play
-        self.voice = voice
-        self.language = language
-
-
-class SentenceSpoken:
-    """Response when sentence is spoken."""
-
-    def __init__(self, wav_data: Optional[bytes] = None):
-        self.wav_data: bytes = wav_data or bytes()
-
 
 # -----------------------------------------------------------------------------
 
@@ -111,6 +90,10 @@ class EspeakSentenceSpeaker(RhasspyActor):
         self.player: Optional[RhasspyActor] = None
         self.receiver: Optional[RhasspyActor] = None
         self.wav_data = bytes()
+        self.wake_on_start = False
+        self.disable_wake = True
+        self.enable_wake = False
+        self.wake: Optional[RhasspyActor] = None
 
     def to_started(self, from_state: str) -> None:
         """Transition to started state."""
@@ -118,6 +101,9 @@ class EspeakSentenceSpeaker(RhasspyActor):
             "text_to_speech.espeak.voice", None
         ) or self.profile.get("language", None)
         self.player = self.config["player"]
+        self.wake = self.config.get("wake")
+        self.wake_on_start = self.profile.get("rhasspy.listen_on_start", False)
+        self.disable_wake = self.profile.get("text_to_speech.disable_wake", True)
         self.transition("ready")
 
     def in_ready(self, message: Any, sender: RhasspyActor) -> None:
@@ -128,6 +114,12 @@ class EspeakSentenceSpeaker(RhasspyActor):
             self.wav_data = self.speak(message.sentence, voice=voice)
 
             if message.play:
+                self.enable_wake = False
+                if self.wake and self.disable_wake:
+                    # Disable wake word
+                    self.send(self.wake, PauseListeningForWakeWord())
+                    self.enable_wake = self.wake_on_start
+
                 self.transition("speaking")
                 self.send(self.player, PlayWavData(self.wav_data))
             else:
@@ -139,6 +131,10 @@ class EspeakSentenceSpeaker(RhasspyActor):
         if isinstance(message, WavPlayed):
             self.transition("ready")
             self.send(self.receiver, SentenceSpoken(self.wav_data))
+
+            if self.wake and self.enable_wake:
+                # Re-enable wake word
+                self.send(self.wake, ResumeListeningForWakeWord())
 
     # -------------------------------------------------------------------------
 
@@ -186,11 +182,18 @@ class FliteSentenceSpeaker(RhasspyActor):
         self.player: Optional[RhasspyActor] = None
         self.receiver: Optional[RhasspyActor] = None
         self.wav_data = bytes()
+        self.wake_on_start = False
+        self.disable_wake = True
+        self.enable_wake = False
+        self.wake: Optional[RhasspyActor] = None
 
     def to_started(self, from_state: str) -> None:
         """Transition to started state."""
         self.voice = self.profile.get("text_to_speech.flite.voice", "kal16")
         self.player = self.config["player"]
+        self.wake = self.config.get("wake")
+        self.wake_on_start = self.profile.get("rhasspy.listen_on_start", False)
+        self.disable_wake = self.profile.get("text_to_speech.disable_wake", True)
         self.transition("ready")
 
     def in_ready(self, message: Any, sender: RhasspyActor) -> None:
@@ -201,6 +204,12 @@ class FliteSentenceSpeaker(RhasspyActor):
             self.wav_data = self.speak(message.sentence, voice=voice)
 
             if message.play:
+                self.enable_wake = False
+                if self.wake and self.disable_wake:
+                    # Disable wake word
+                    self.send(self.wake, PauseListeningForWakeWord())
+                    self.enable_wake = self.wake_on_start
+
                 self.transition("speaking")
                 self.send(self.player, PlayWavData(self.wav_data))
             else:
@@ -212,6 +221,10 @@ class FliteSentenceSpeaker(RhasspyActor):
         if isinstance(message, WavPlayed):
             self.transition("ready")
             self.send(self.receiver, SentenceSpoken(self.wav_data))
+
+            if self.wake and self.enable_wake:
+                # Re-enable wake word
+                self.send(self.wake, ResumeListeningForWakeWord())
 
     # -------------------------------------------------------------------------
 
@@ -256,18 +269,19 @@ class PicoTTSSentenceSpeaker(RhasspyActor):
         self.player: Optional[RhasspyActor] = None
         self.receiver: Optional[RhasspyActor] = None
         self.language: str = ""
-        self.temp_dir: Optional[tempfile.TemporaryDirectory] = None
-        self.wav_path: str = ""
         self.wav_data: bytes = bytes()
+        self.wake_on_start = False
+        self.disable_wake = True
+        self.enable_wake = False
+        self.wake: Optional[RhasspyActor] = None
 
     def to_started(self, from_state: str) -> None:
         """Transition to started state."""
         self.player = self.config["player"]
         self.language = self.profile.get("text_to_speech.picotts.language", "")
-        self.temp_dir = tempfile.TemporaryDirectory()
-        assert self.temp_dir is not None
-        self.wav_path = os.path.join(self.temp_dir.name, "output.wav")
-        os.symlink("/dev/stdout", self.wav_path)
+        self.wake = self.config.get("wake")
+        self.wake_on_start = self.profile.get("rhasspy.listen_on_start", False)
+        self.disable_wake = self.profile.get("text_to_speech.disable_wake", True)
 
         self.transition("ready")
 
@@ -279,6 +293,12 @@ class PicoTTSSentenceSpeaker(RhasspyActor):
             self.wav_data = self.speak(message.sentence, language=language)
 
             if message.play:
+                self.enable_wake = False
+                if self.wake and self.disable_wake:
+                    # Disable wake word
+                    self.send(self.wake, PauseListeningForWakeWord())
+                    self.enable_wake = self.wake_on_start
+
                 self.transition("speaking")
                 self.send(self.player, PlayWavData(self.wav_data))
             else:
@@ -291,25 +311,25 @@ class PicoTTSSentenceSpeaker(RhasspyActor):
             self.transition("ready")
             self.send(self.receiver, SentenceSpoken(self.wav_data))
 
-    def to_stopped(self, from_state: str) -> None:
-        """Transition to stopped state."""
-        if self.temp_dir is not None:
-            self.temp_dir.cleanup()
-            self.temp_dir = None
+            if self.wake and self.enable_wake:
+                # Re-enable wake word
+                self.send(self.wake, ResumeListeningForWakeWord())
 
     # -------------------------------------------------------------------------
 
     def speak(self, sentence: str, language: Optional[str] = None) -> bytes:
         """Get WAV buffer for sentence."""
         try:
-            pico_cmd = ["pico2wave", "-w", self.wav_path]
-            if language:
-                pico_cmd.extend(["-l", str(language)])
+            with tempfile.NamedTemporaryFile(suffix=".wav", mode="wb") as wav_file:
+                pico_cmd = ["pico2wave", "-w", wav_file.name]
+                if language:
+                    pico_cmd.extend(["-l", str(language)])
 
-            pico_cmd.append(sentence)
-            self._logger.debug(pico_cmd)
+                pico_cmd.append(sentence)
+                self._logger.debug(pico_cmd)
 
-            return subprocess.check_output(pico_cmd)
+                subprocess.check_call(pico_cmd)
+                return open(wav_file.name, "rb").read()
         except Exception:
             self._logger.exception("speak")
             return bytes()
@@ -345,6 +365,10 @@ class MaryTTSSentenceSpeaker(RhasspyActor):
         self.receiver: Optional[RhasspyActor] = None
         self.wav_data = bytes()
         self.effects: Dict[str, Any] = {}
+        self.wake_on_start = False
+        self.disable_wake = True
+        self.enable_wake = False
+        self.wake: Optional[RhasspyActor] = None
 
     def to_started(self, from_state: str) -> None:
         """Transition to started state."""
@@ -360,6 +384,9 @@ class MaryTTSSentenceSpeaker(RhasspyActor):
         self.effects = self.profile.get("text_to_speech.marytts.effects", {})
 
         self.player = self.config["player"]
+        self.wake = self.config.get("wake")
+        self.wake_on_start = self.profile.get("rhasspy.listen_on_start", False)
+        self.disable_wake = self.profile.get("text_to_speech.disable_wake", True)
         self.transition("ready")
 
     def in_ready(self, message: Any, sender: RhasspyActor) -> None:
@@ -371,6 +398,12 @@ class MaryTTSSentenceSpeaker(RhasspyActor):
             self.wav_data = self.speak(message.sentence, locale, voice=voice)
 
             if message.play:
+                self.enable_wake = False
+                if self.wake and self.disable_wake:
+                    # Disable wake word
+                    self.send(self.wake, PauseListeningForWakeWord())
+                    self.enable_wake = self.wake_on_start
+
                 self.transition("speaking")
                 self.send(self.player, PlayWavData(self.wav_data))
             else:
@@ -382,6 +415,10 @@ class MaryTTSSentenceSpeaker(RhasspyActor):
         if isinstance(message, WavPlayed):
             self.transition("ready")
             self.send(self.receiver, SentenceSpoken(self.wav_data))
+
+            if self.wake and self.enable_wake:
+                # Re-enable wake word
+                self.send(self.wake, ResumeListeningForWakeWord())
 
     # -------------------------------------------------------------------------
 
@@ -442,6 +479,10 @@ class CommandSentenceSpeaker(RhasspyActor):
         self.player: Optional[RhasspyActor] = None
         self.receiver: Optional[RhasspyActor] = None
         self.wav_data = bytes()
+        self.wake_on_start = False
+        self.disable_wake = True
+        self.enable_wake = False
+        self.wake: Optional[RhasspyActor] = None
 
     def to_started(self, from_state: str) -> None:
         """Transition to started state."""
@@ -453,6 +494,9 @@ class CommandSentenceSpeaker(RhasspyActor):
 
         self.command = [program] + arguments
         self.player = self.config["player"]
+        self.wake = self.config.get("wake")
+        self.wake_on_start = self.profile.get("rhasspy.listen_on_start", False)
+        self.disable_wake = self.profile.get("text_to_speech.disable_wake", True)
         self.transition("ready")
 
     def in_ready(self, message: Any, sender: RhasspyActor) -> None:
@@ -462,6 +506,12 @@ class CommandSentenceSpeaker(RhasspyActor):
             self.wav_data = self.speak(message.sentence)
 
             if message.play:
+                self.enable_wake = False
+                if self.wake and self.disable_wake:
+                    # Disable wake word
+                    self.send(self.wake, PauseListeningForWakeWord())
+                    self.enable_wake = self.wake_on_start
+
                 self.transition("speaking")
                 self.send(self.player, PlayWavData(self.wav_data))
             else:
@@ -473,6 +523,10 @@ class CommandSentenceSpeaker(RhasspyActor):
         if isinstance(message, WavPlayed):
             self.transition("ready")
             self.send(self.receiver, SentenceSpoken(self.wav_data))
+
+            if self.wake and self.enable_wake:
+                # Re-enable wake word
+                self.send(self.wake, ResumeListeningForWakeWord())
 
     # -------------------------------------------------------------------------
 
@@ -519,6 +573,11 @@ class GoogleWaveNetSentenceSpeaker(RhasspyActor):
         self.fallback_actor: Optional[RhasspyActor] = None
         self.credentials_json = ""
 
+        self.wake_on_start = False
+        self.disable_wake = True
+        self.enable_wake = False
+        self.wake: Optional[RhasspyActor] = None
+
     def to_started(self, from_state: str) -> None:
         """Transition to started state."""
         self.cache_dir = self.profile.write_dir(
@@ -543,6 +602,9 @@ class GoogleWaveNetSentenceSpeaker(RhasspyActor):
         )
 
         self.player = self.config["player"]
+        self.wake = self.config.get("wake")
+        self.wake_on_start = self.profile.get("rhasspy.listen_on_start", False)
+        self.disable_wake = self.profile.get("text_to_speech.disable_wake", True)
 
         # Create a child actor as a fallback.
         # This will load the appropriate settings, etc.
@@ -569,6 +631,12 @@ class GoogleWaveNetSentenceSpeaker(RhasspyActor):
                 self.wav_data = self.speak(message.sentence, voice, language_code)
 
                 if message.play:
+                    self.enable_wake = False
+                    if self.wake and self.disable_wake:
+                        # Disable wake word
+                        self.send(self.wake, PauseListeningForWakeWord())
+                        self.enable_wake = self.wake_on_start
+
                     self.transition("speaking")
                     self.send(self.player, PlayWavData(self.wav_data))
                 else:
@@ -607,6 +675,10 @@ class GoogleWaveNetSentenceSpeaker(RhasspyActor):
         if isinstance(message, WavPlayed):
             self.transition("ready")
             self.send(self.receiver, SentenceSpoken(self.wav_data))
+
+            if self.wake and self.enable_wake:
+                # Re-enable wake word
+                self.send(self.wake, ResumeListeningForWakeWord())
         elif isinstance(message, SentenceSpoken):
             # From fallback actor
             self.transition("ready")
@@ -717,6 +789,10 @@ class HomeAssistantSentenceSpeaker(RhasspyActor):
         self.player: Optional[RhasspyActor] = None
         self.receiver: Optional[RhasspyActor] = None
         self.wav_data = bytes()
+        self.wake_on_start = False
+        self.disable_wake = True
+        self.enable_wake = False
+        self.wake: Optional[RhasspyActor] = None
 
     def to_started(self, from_state: str) -> None:
         """Transition to started state."""
@@ -733,6 +809,9 @@ class HomeAssistantSentenceSpeaker(RhasspyActor):
         self.platform = self.profile.get("text_to_speech.hass_tts.platform")
 
         self.player = self.config["player"]
+        self.wake = self.config.get("wake")
+        self.wake_on_start = self.profile.get("rhasspy.listen_on_start", False)
+        self.disable_wake = self.profile.get("text_to_speech.disable_wake", True)
         self.transition("ready")
 
     def in_ready(self, message: Any, sender: RhasspyActor) -> None:
@@ -742,6 +821,12 @@ class HomeAssistantSentenceSpeaker(RhasspyActor):
             self.wav_data = self.speak(message.sentence)
 
             if message.play:
+                self.enable_wake = False
+                if self.wake and self.disable_wake:
+                    # Disable wake word
+                    self.send(self.wake, PauseListeningForWakeWord())
+                    self.enable_wake = self.wake_on_start
+
                 self.transition("speaking")
                 self.send(self.player, PlayWavData(self.wav_data))
             else:
@@ -753,6 +838,10 @@ class HomeAssistantSentenceSpeaker(RhasspyActor):
         if isinstance(message, WavPlayed):
             self.transition("ready")
             self.send(self.receiver, SentenceSpoken(self.wav_data))
+
+            if self.wake and self.enable_wake:
+                # Re-enable wake word
+                self.send(self.wake, ResumeListeningForWakeWord())
 
     # -------------------------------------------------------------------------
 

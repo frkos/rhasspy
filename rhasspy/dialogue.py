@@ -6,124 +6,40 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Type
 
+import pydash
 import pywrapfst as fst
 
 from rhasspy.actor import (ActorExitRequest, ChildActorExited, Configured,
                            ConfigureEvent, RhasspyActor, StateTransition,
                            WakeupMessage)
-from rhasspy.audio_player import (PlayWavData, PlayWavFile, WavPlayed,
-                                  get_sound_class)
-from rhasspy.audio_recorder import (AudioData, HTTPAudioRecorder,
-                                    StartRecordingToBuffer,
-                                    StopRecordingToBuffer,
-                                    get_microphone_class)
-from rhasspy.command_listener import (ListenForCommand, VoiceCommand,
-                                      get_command_class)
-from rhasspy.intent import (IntentRecognized, RecognizeIntent,
-                            get_recognizer_class)
-from rhasspy.intent_handler import (HandleIntent, IntentHandled,
-                                    get_intent_handler_class)
-from rhasspy.intent_train import (IntentTrainingComplete, IntentTrainingFailed,
-                                  TrainIntent, get_intent_trainer_class)
-from rhasspy.mqtt import MqttPublish
-from rhasspy.pronounce import GetWordPhonemes, GetWordPronunciations, SpeakWord
-from rhasspy.stt import TranscribeWav, WavTranscription, get_decoder_class
+from rhasspy.audio_player import get_sound_class
+from rhasspy.audio_recorder import HTTPAudioRecorder, get_microphone_class
+from rhasspy.command_listener import get_command_class
+from rhasspy.events import (AudioData, GetActorStates, GetMicrophones,
+                            GetProblems, GetSpeakers, GetVoiceCommand,
+                            GetWordPhonemes, GetWordPronunciations,
+                            HandleIntent, IntentHandled, IntentRecognized,
+                            IntentTrainingComplete, IntentTrainingFailed,
+                            ListenForCommand, ListenForWakeWord, MqttPublish,
+                            PlayWavData, PlayWavFile, Problems,
+                            ProfileTrainingComplete, ProfileTrainingFailed,
+                            Ready, RecognizeIntent, SpeakSentence, SpeakWord,
+                            StartRecordingToBuffer, StopListeningForWakeWord,
+                            StopRecordingToBuffer, TestMicrophones,
+                            TrainIntent, TrainProfile, TranscribeWav,
+                            VoiceCommand, WakeWordDetected,
+                            WakeWordNotDetected, WavPlayed, WavTranscription)
+from rhasspy.intent import get_recognizer_class
+from rhasspy.intent_handler import get_intent_handler_class
+from rhasspy.intent_train import get_intent_trainer_class
+from rhasspy.stt import get_decoder_class
 from rhasspy.stt_train import get_speech_trainer_class
 from rhasspy.train import train_profile
-from rhasspy.tts import SpeakSentence, get_speech_class
+from rhasspy.tts import get_speech_class
 from rhasspy.utils import buffer_to_wav
-from rhasspy.wake import (ListenForWakeWord, StopListeningForWakeWord,
-                          WakeWordDetected, WakeWordNotDetected,
-                          get_wake_class)
+from rhasspy.wake import get_wake_class
 
 # -----------------------------------------------------------------------------
-
-
-class GetMicrophones:
-    """Request list of micrphones."""
-
-    def __init__(self, system: Optional[str] = None) -> None:
-        self.system = system
-
-
-class TestMicrophones:
-    """Request live microphones."""
-
-    def __init__(self, system: Optional[str] = None) -> None:
-        self.system = system
-
-
-class GetSpeakers:
-    """Request list of audio players."""
-
-    def __init__(self, system: Optional[str] = None) -> None:
-        self.system = system
-
-
-class TrainProfile:
-    """Request training for profile."""
-
-    def __init__(
-        self, receiver: Optional[RhasspyActor] = None, reload_actors: bool = True
-    ) -> None:
-        self.receiver = receiver
-        self.reload_actors = reload_actors
-
-
-class ProfileTrainingFailed:
-    """Response when training fails."""
-
-    def __init__(self, reason: str):
-        self.reason = reason
-
-    def __repr__(self):
-        return f"FAILED: {self.reason}"
-
-
-class ProfileTrainingComplete:
-    """Response when training succeeds."""
-
-    def __repr__(self):
-        return "OK"
-
-
-class Ready:
-    """Emitted when all actors have been loaded."""
-
-    def __init__(
-        self, timeout: bool = False, problems: Optional[Dict[str, Any]] = None
-    ) -> None:
-        self.timeout = timeout
-        self.problems = problems or {}
-
-
-class GetVoiceCommand:
-    """Request to record a voice command."""
-
-    def __init__(
-        self, receiver: Optional[RhasspyActor] = None, timeout: Optional[float] = None
-    ) -> None:
-        self.receiver = receiver
-        self.timeout = timeout
-
-
-class GetActorStates:
-    """Request for actors' current states."""
-
-    pass
-
-
-class GetProblems:
-    """Request any problems during startup."""
-
-    pass
-
-
-class Problems:
-    """Response to GetProblems."""
-
-    def __init__(self, problems: Optional[Dict[str, Any]] = None):
-        self.problems = problems or {}
 
 
 # -----------------------------------------------------------------------------
@@ -484,7 +400,7 @@ class DialogueManager(RhasspyActor):
                     "text": message.text,
                     "likelihood": 1,
                     "seconds": 0,
-                    "wakeId": self.wake_detected_name or ""
+                    "wakeId": self.wake_detected_name or "",
                 }
             ).encode()
 
@@ -511,6 +427,16 @@ class DialogueManager(RhasspyActor):
     def in_recognizing(self, message: Any, sender: RhasspyActor) -> None:
         """Handle messages in recognizing state."""
         if isinstance(message, IntentRecognized):
+
+            if not pydash.get(message.intent, "intent.name", ""):
+                if self.profile.get("intent.error_sound", True):
+                    # Play error sound when not recognized
+                    wav_path = os.path.expandvars(
+                        self.profile.get("sounds.error", None)
+                    )
+                    if wav_path is not None:
+                        self.send(self.player, PlayWavFile(wav_path))
+
             if self.recorder_class == HTTPAudioRecorder:
                 # Forward to audio recorder
                 self.send(self.recorder, message)

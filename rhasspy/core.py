@@ -14,45 +14,22 @@ import aiohttp
 
 # Internal imports
 from rhasspy.actor import ActorSystem, ConfigureEvent, RhasspyActor
-from rhasspy.audio_recorder import (
-    AudioData,
-    StartRecordingToBuffer,
-    StopRecordingToBuffer,
-)
-from rhasspy.dialogue import (
-    DialogueManager,
-    GetActorStates,
-    GetMicrophones,
-    GetProblems,
-    GetSpeakers,
-    GetVoiceCommand,
-    GetWordPhonemes,
-    GetWordPronunciations,
-    HandleIntent,
-    ListenForCommand,
-    ListenForWakeWord,
-    MqttPublish,
-    PlayWavData,
-    PlayWavFile,
-    Problems,
-    ProfileTrainingComplete,
-    ProfileTrainingFailed,
-    RecognizeIntent,
-    SpeakSentence,
-    SpeakWord,
-    TestMicrophones,
-    TrainProfile,
-    TranscribeWav,
-    VoiceCommand,
-    WakeWordDetected,
-    WakeWordNotDetected,
-)
-from rhasspy.intent import IntentRecognized
-from rhasspy.intent_handler import IntentHandled
+from rhasspy.dialogue import DialogueManager
+from rhasspy.events import (AudioData, GetActorStates, GetMicrophones,
+                            GetProblems, GetSpeakers, GetVoiceCommand,
+                            GetWordPhonemes, GetWordPronunciations,
+                            HandleIntent, IntentHandled, IntentRecognized,
+                            ListenForCommand, ListenForWakeWord, MqttPublish,
+                            PlayWavData, PlayWavFile, Problems,
+                            ProfileTrainingComplete, ProfileTrainingFailed,
+                            RecognizeIntent, SentenceSpoken, SpeakSentence,
+                            SpeakWord, StartRecordingToBuffer,
+                            StopRecordingToBuffer, TestMicrophones,
+                            TrainProfile, TranscribeWav, VoiceCommand,
+                            WakeWordDetected, WakeWordNotDetected,
+                            WavTranscription, WordPhonemes, WordPronunciations,
+                            WordSpoken)
 from rhasspy.profiles import Profile
-from rhasspy.pronounce import WordPhonemes, WordPronunciations, WordSpoken
-from rhasspy.stt import WavTranscription
-from rhasspy.tts import SentenceSpoken
 from rhasspy.utils import numbers_to_words
 
 # -----------------------------------------------------------------------------

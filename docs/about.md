@@ -2,13 +2,14 @@
 
 Rhasspy was created and is currently maintained by [Michael Hansen](https://synesthesiam.com/).
 
-<img src="img/mike-head.png" style="max-height: 100px;" title="Mike head">
+<img src="../img/mike-head.png" style="max-height: 100px;" title="Mike head">
 
 Special thanks to:
 
 * [Romkabouter](https://github.com/Romkabouter)
 * [koenvervloesem](https://github.com/koenvervloesem)
 * [FunkyBoT](https://community.home-assistant.io/u/FunkyBoT)
+* [fastjack](https://community.rhasspy.org/u/fastjack)
 * [S_n_Nguy_n](https://community.home-assistant.io/u/S_n_Nguy_n)
 
 ## Motivation

@@ -10,45 +10,9 @@ import pydash
 import requests
 
 from rhasspy.actor import RhasspyActor
-from rhasspy.tts import SpeakSentence
+from rhasspy.events import (ForwardIntent, HandleIntent, IntentForwarded,
+                            IntentHandled, SpeakSentence)
 from rhasspy.utils import hass_request_kwargs
-
-# -----------------------------------------------------------------------------
-
-
-class HandleIntent:
-    """Request to handle intent."""
-
-    def __init__(
-        self, intent: Dict[str, Any], receiver: Optional[RhasspyActor] = None
-    ) -> None:
-        self.intent = intent
-        self.receiver = receiver
-
-
-class IntentHandled:
-    """Response to HandleIntent."""
-
-    def __init__(self, intent: Dict[str, Any]) -> None:
-        self.intent = intent
-
-
-class ForwardIntent:
-    """Request intent be forwarded to Home Assistant."""
-
-    def __init__(
-        self, intent: Dict[str, Any], receiver: Optional[RhasspyActor] = None
-    ) -> None:
-        self.intent = intent
-        self.receiver = receiver
-
-
-class IntentForwarded:
-    """Response to ForwardIntent."""
-
-    def __init__(self, intent: Dict[str, Any]) -> None:
-        self.intent = intent
-
 
 # -----------------------------------------------------------------------------
 
@@ -95,7 +59,12 @@ class DummyIntentHandler(RhasspyActor):
 
 
 class HomeAssistantHandleType(str, Enum):
+    """Method used to communicate intents to Home Assistnat"""
+
+    # Send events to /api/events
     EVENT = "event"
+
+    # Send intents to /api/intent
     INTENT = "intent"
 
 
@@ -225,6 +194,10 @@ class HomeAssistantIntentHandler(RhasspyActor):
         slots = {}
         for entity in intent["entities"]:
             slots[entity["entity"]] = entity["value"]
+
+        # Add meta slots
+        slots["_text"] = intent.get("text", "")
+        slots["_raw_text"] = intent.get("raw_text", "")
 
         return event_type, slots
 
